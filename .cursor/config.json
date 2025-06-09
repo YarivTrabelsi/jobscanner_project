@@ -1,0 +1,8 @@
+{
+  "rules": [
+    {
+      "pattern": ".*",
+      "context": "This project is a daily job scanning and alerting tool tailored for engineering leadership roles. Use semantic analysis to assess suitability, generate personalized application material, and notify the user for approval before applying."
+    }
+  ]
+}
