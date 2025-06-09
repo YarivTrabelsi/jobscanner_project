@@ -20,77 +20,150 @@ All stages are modular Python components designed for scheduling via GitHub Acti
 
 ---
 
-## 🎯 MVP 1: Job Crawler + Storage
+## 🎯 MVP 1: Job Crawler + API Backend
 
-This initial version focuses on crawling and storing job listings:
+This version provides a **REST API** for accessing crawled job data:
 
-✅ **Sources Supported:**
-- **Google Careers**: https://careers.google.com/jobs/results/
-- **LinkedIn Public Jobs**: Dynamic search for engineering leadership roles
+✅ **API Endpoints:**
+- `GET /api/stats` - Database statistics
+- `GET /api/jobs` - List jobs with filtering & pagination
+- `GET /api/companies` - Company analysis with job counts  
+- `GET /api/search?q=term` - Full-text job search
+- `POST /api/crawl` - Trigger manual crawling
+- `GET /health` - Service health check
 
-✅ **Data Extracted:**
-- Job title, company, location, URL
-- Posted date and full description  
-- Metadata (source, crawl timestamp)
+✅ **Data Sources:**
+- **Google Careers**: Senior engineering roles
+- **LinkedIn Public Jobs**: Leadership positions
 
-✅ **Storage:**
-- SQLite database with deduplication
-- Configurable job status tracking
-- Full-text search capabilities
+✅ **Features:**
+- **REST API** with JSON responses
+- **Async crawling** with status tracking
+- **SQLite database** with deduplication
+- **CORS enabled** for frontend integration
+- **Real-time search** across job descriptions
 
 ---
 
 ## 🚀 Quick Start
 
-### Option A: GitHub Actions Deployment (Recommended - Completely Free!)
+### Option A: Railway Deployment (Recommended - Free Web API!)
 
-**1. Fork this repository to your GitHub account**
+**1. Deploy to Railway:**
+- Fork this repository
+- Go to [Railway.app](https://railway.app)
+- Click "Deploy from GitHub repo"
+- Select your forked `jobscanner_project`
+- Railway auto-deploys! ✨
 
-**2. Enable GitHub Actions in your forked repository:**
-- Go to your forked repo on GitHub
-- Click "Actions" tab
-- Click "I understand my workflows, enable them"
+**2. Test your API:**
+```bash
+# Replace YOUR_APP_URL with your Railway app URL
+python test_api.py https://YOUR_APP_URL.railway.app
+```
 
-**3. Test the deployment:**
-- Go to "Actions" tab in your repo
-- Click on "🧪 Test JobScanner Crawler" workflow
-- Click "Run workflow" button (top right)
-- Click the green "Run workflow" button
-- Watch it run! It will take 3-5 minutes
+**3. Use the API:**
+```bash
+# Get statistics
+curl https://YOUR_APP_URL.railway.app/api/stats
 
-**4. Enable daily crawling:**
-- The "🔍 JobScanner Daily Crawl" workflow runs automatically every day at 9 AM UTC
-- You can also trigger it manually anytime from the Actions tab
+# List jobs
+curl https://YOUR_APP_URL.railway.app/api/jobs?limit=10
 
-**5. View results:**
-- Check the "Actions" tab for crawl summaries
-- Download the database from workflow artifacts
-- Each run creates a detailed report showing jobs found
+# Search jobs
+curl https://YOUR_APP_URL.railway.app/api/search?q="Staff%20Engineer"
+
+# Trigger manual crawl
+curl -X POST https://YOUR_APP_URL.railway.app/api/crawl
+```
 
 ### Option B: Local Development
 
 ```bash
-# Clone the repository
+# Clone and setup
 git clone <your-repo-url>
 cd jobscanner_project
-
-# Create virtual environment (recommended)
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+playwright install chromium
 
-# Run setup script
-python scripts/setup.py
+# Start API server (runs initial crawl automatically)
+python start.py
 
-# Start crawling jobs
-python scripts/run_daily.py
+# Test the API
+python test_api.py
 
-# View results
-python scripts/query_jobs.py --stats --detailed
+# API available at: http://localhost:5000
 ```
 
 ---
 
-## ☁️ GitHub Actions Deployment
+## 🔌 API Usage Examples
+
+### **Get Database Statistics**
+```bash
+curl https://your-app.railway.app/api/stats
+```
+```json
+{
+  "success": true,
+  "data": {
+    "total": 156,
+    "new": 12,
+    "processed": 144
+  },
+  "timestamp": "2024-12-07T10:30:00"
+}
+```
+
+### **List Recent Jobs**
+```bash
+curl "https://your-app.railway.app/api/jobs?limit=5&status=new"
+```
+
+### **Search for Specific Roles**
+```bash
+curl "https://your-app.railway.app/api/search?q=Staff Engineer&limit=10"
+```
+
+### **Get Company Analysis**
+```bash
+curl https://your-app.railway.app/api/companies
+```
+
+### **Trigger Manual Crawl**
+```bash
+curl -X POST https://your-app.railway.app/api/crawl \
+  -H "Content-Type: application/json" \
+  -d '{"search_terms": ["VP Engineering", "Director Engineering"]}'
+```
+
+### **Check Crawl Status**
+```bash
+curl https://your-app.railway.app/api/crawl/status
+```
+
+### **JavaScript/Frontend Integration**
+```javascript
+// Get jobs for your frontend
+async function getJobs() {
+  const response = await fetch('https://your-app.railway.app/api/jobs?limit=20');
+  const data = await response.json();
+  return data.data.jobs;
+}
+
+// Search jobs
+async function searchJobs(query) {
+  const response = await fetch(`https://your-app.railway.app/api/search?q=${encodeURIComponent(query)}`);
+  const data = await response.json();
+  return data.data.jobs;
+}
+```
+
+---
+
+## ☁️ Deployment Options
 
 JobScanner runs completely free on GitHub Actions with the following architecture:
 

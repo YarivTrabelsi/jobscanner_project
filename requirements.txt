@@ -4,3 +4,5 @@ beautifulsoup4
 playwright
 sqlite-utils
 twilio
+flask
+flask-cors
