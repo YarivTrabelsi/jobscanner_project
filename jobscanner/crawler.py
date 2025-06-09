@@ -126,13 +126,14 @@ class JobCrawler:
             logger.error(f"Error extracting Google job data: {e}")
             return None
     
-    def crawl_linkedin_jobs(self, search_terms: List[str] = None, max_results: int = 50) -> List[Dict]:
+    def crawl_linkedin_jobs(self, search_terms: List[str] = None, max_results: int = 50, locations: List[str] = None) -> List[Dict]:
         """
         Crawl LinkedIn public job search for job listings.
         
         Args:
             search_terms: List of search terms
             max_results: Maximum number of results to fetch
+            locations: List of locations to search in
         
         Returns:
             List of job dictionaries
@@ -142,45 +143,73 @@ class JobCrawler:
         if not search_terms:
             search_terms = ['VP Engineering', 'Director Engineering', 'Engineering Manager']
         
+        if not locations:
+            # Default to Israel and Western European countries
+            locations = [
+                'Israel',
+                'United Kingdom', 
+                'Germany',
+                'Netherlands',
+                'France',
+                'Switzerland',
+                'Sweden',
+                'Denmark',
+                'Norway'
+            ]
+        
         logger.info(f"Crawling LinkedIn Jobs for terms: {search_terms}")
+        logger.info(f"Target locations: {locations}")
         
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page()
                 
+                # Set more realistic headers to avoid detection
+                page.set_extra_http_headers({
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                })
+                
                 for term in search_terms:
-                    logger.info(f"Searching LinkedIn for: {term}")
+                    for location in locations:
+                        logger.info(f"Searching LinkedIn for: {term} in {location}")
+                        
+                        # Build LinkedIn search URL with location
+                        search_url = f"https://www.linkedin.com/jobs/search/?keywords={term.replace(' ', '%20')}&location={location.replace(' ', '%20')}"
+                        page.goto(search_url)
                     
-                    # Build LinkedIn search URL
-                    search_url = f"https://www.linkedin.com/jobs/search/?keywords={term.replace(' ', '%20')}&location=United%20States"
-                    page.goto(search_url)
-                    
-                    # Wait for jobs to load
-                    try:
-                        page.wait_for_selector('.job-search-card', timeout=10000)
-                    except:
-                        logger.warning(f"No jobs found for term: {term}")
-                        continue
-                    
-                    # Scroll to load more jobs
-                    for i in range(3):
-                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        time.sleep(2)
-                    
-                    # Extract job listings
-                    job_elements = page.query_selector_all('.job-search-card')[:max_results]
-                    
-                    for job_elem in job_elements:
+                        # Wait for jobs to load
                         try:
-                            job_data = self._extract_linkedin_job(job_elem)
-                            if job_data:
-                                jobs.append(job_data)
-                        except Exception as e:
-                            logger.error(f"Error extracting LinkedIn job: {e}")
+                            page.wait_for_selector('.job-search-card', timeout=10000)
+                        except:
+                            logger.warning(f"No jobs found for term: {term} in {location}")
                             continue
-                    
-                    time.sleep(self.delay)
+                        
+                        # Add random delay to avoid detection
+                        time.sleep(2 + (hash(f"{term}{location}") % 3))
+                        
+                        # Scroll to load more jobs
+                        for i in range(2):  # Reduced scrolling to be less aggressive
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            time.sleep(2)
+                        
+                        # Extract job listings (limit per location to avoid overwhelming)
+                        job_elements = page.query_selector_all('.job-search-card')[:min(max_results//len(locations), 10)]
+                        
+                        for job_elem in job_elements:
+                            try:
+                                job_data = self._extract_linkedin_job(job_elem, location)
+                                if job_data and self._is_text_valid(job_data.get('title', '')):
+                                    jobs.append(job_data)
+                            except Exception as e:
+                                logger.error(f"Error extracting LinkedIn job: {e}")
+                                continue
+                        
+                        time.sleep(self.delay + 1)  # Longer delay between location searches
                 
                 browser.close()
         
@@ -190,32 +219,73 @@ class JobCrawler:
         logger.info(f"Found {len(jobs)} jobs from LinkedIn")
         return jobs
     
-    def _extract_linkedin_job(self, job_elem) -> Optional[Dict]:
+    def _extract_linkedin_job(self, job_elem, search_location: str = "") -> Optional[Dict]:
         """Extract job data from a LinkedIn job element."""
         try:
-            # Extract title
-            title_elem = job_elem.query_selector('.base-search-card__title')
-            title = title_elem.inner_text().strip() if title_elem else ""
+            # Try multiple selectors for better data extraction
+            title_selectors = [
+                '.base-search-card__title',
+                '.base-search-card__title a',
+                '[data-job-title]',
+                '.job-search-card__title'
+            ]
             
-            # Extract company
-            company_elem = job_elem.query_selector('.base-search-card__subtitle')
-            company = company_elem.inner_text().strip() if company_elem else ""
+            company_selectors = [
+                '.base-search-card__subtitle',
+                '.base-search-card__subtitle a',
+                '[data-company-name]',
+                '.job-search-card__subtitle'
+            ]
             
-            # Extract location
-            location_elem = job_elem.query_selector('.job-search-card__location')
-            location = location_elem.inner_text().strip() if location_elem else ""
+            location_selectors = [
+                '.job-search-card__location',
+                '.base-search-card__location',
+                '[data-job-location]'
+            ]
             
-            # Extract URL
-            link_elem = job_elem.query_selector('a[data-tracking-control-name="public_jobs_jserp-result_search-card"]')
+            # Extract title with fallback selectors
+            title = ""
+            for selector in title_selectors:
+                title_elem = job_elem.query_selector(selector)
+                if title_elem:
+                    title = title_elem.inner_text().strip()
+                    if title and self._is_text_valid(title):
+                        break
+            
+            # Extract company with fallback selectors
+            company = ""
+            for selector in company_selectors:
+                company_elem = job_elem.query_selector(selector)
+                if company_elem:
+                    company = company_elem.inner_text().strip()
+                    if company and self._is_text_valid(company):
+                        break
+            
+            # Extract location with fallback selectors
+            location = search_location  # Use search location as fallback
+            for selector in location_selectors:
+                location_elem = job_elem.query_selector(selector)
+                if location_elem:
+                    extracted_location = location_elem.inner_text().strip()
+                    if extracted_location and self._is_text_valid(extracted_location):
+                        location = extracted_location
+                        break
+            
+            # Extract URL with better selector
+            link_elem = job_elem.query_selector('a[href*="/jobs/view/"]') or job_elem.query_selector('a')
             url = link_elem.get_attribute('href') if link_elem else ""
+            
+            # Clean up URL
+            if url and not url.startswith('http'):
+                url = f"https://www.linkedin.com{url}"
             
             # Extract posted date
             posted_elem = job_elem.query_selector('.job-search-card__listdate')
             posted_date = posted_elem.get_attribute('datetime') if posted_elem else self._get_current_date()
             
-            # For LinkedIn, we'll get description later or leave it empty for now
-            # as extracting full descriptions requires individual page visits
-            description = ""
+            # Skip if critical fields are missing or invalid
+            if not title or not company or not self._is_text_valid(title) or not self._is_text_valid(company):
+                return None
             
             return {
                 'title': title,
@@ -223,9 +293,10 @@ class JobCrawler:
                 'location': location,
                 'url': url,
                 'posted_date': posted_date or self._get_current_date(),
-                'description': description,
+                'description': "",  # Leave empty for LinkedIn jobs
                 'metadata': {
                     'source': 'linkedin',
+                    'search_location': search_location,
                     'crawled_at': datetime.now().isoformat()
                 }
             }
@@ -233,12 +304,13 @@ class JobCrawler:
             logger.error(f"Error extracting LinkedIn job data: {e}")
             return None
     
-    def crawl_all_sources(self, search_terms: List[str] = None) -> List[Dict]:
+    def crawl_all_sources(self, search_terms: List[str] = None, locations: List[str] = None) -> List[Dict]:
         """
         Crawl all supported job sources.
         
         Args:
             search_terms: List of search terms
+            locations: List of locations to search in
         
         Returns:
             Combined list of job dictionaries from all sources
@@ -253,32 +325,65 @@ class JobCrawler:
                 'Engineering Manager',
                 'Staff Engineer',
                 'Principal Engineer',
-                'Senior Engineering Manager'
+                'Senior Engineering Manager',
+                'Head of Engineering'
+            ]
+        
+        # Default to Israel and Western Europe
+        if not locations:
+            locations = [
+                'Israel',
+                'United Kingdom', 
+                'Germany',
+                'Netherlands',
+                'France',
+                'Switzerland',
+                'Sweden',
+                'Denmark',
+                'Norway',
+                'Austria',
+                'Belgium'
             ]
         
         logger.info(f"Starting crawl for terms: {search_terms}")
+        logger.info(f"Target locations: {locations}")
         
-        # Crawl Google Careers
+        # Crawl Google Careers (still US-focused but may have remote roles)
         try:
-            google_jobs = self.crawl_google_careers(search_terms, max_pages=2)
-            all_jobs.extend(google_jobs)
+            google_jobs = self.crawl_google_careers(search_terms, max_pages=1)
+            # Filter Google jobs for international companies
+            international_google_jobs = []
+            for job in google_jobs:
+                if any(loc.lower() in job.get('location', '').lower() or 
+                       loc.lower() in job.get('description', '').lower() 
+                       for loc in ['remote', 'international', 'europe', 'israel']):
+                    international_google_jobs.append(job)
+            all_jobs.extend(international_google_jobs)
+            logger.info(f"Found {len(international_google_jobs)} relevant Google jobs")
         except Exception as e:
             logger.error(f"Failed to crawl Google Careers: {e}")
         
-        # Crawl LinkedIn Jobs
+        # Crawl LinkedIn Jobs with location targeting
         try:
-            linkedin_jobs = self.crawl_linkedin_jobs(search_terms, max_results=30)
+            linkedin_jobs = self.crawl_linkedin_jobs(search_terms, max_results=50, locations=locations)
             all_jobs.extend(linkedin_jobs)
         except Exception as e:
             logger.error(f"Failed to crawl LinkedIn Jobs: {e}")
         
-        # Remove duplicates based on URL
+        # Remove duplicates based on URL and title+company combination
         unique_jobs = []
         seen_urls = set()
+        seen_combinations = set()
         
         for job in all_jobs:
-            if job['url'] and job['url'] not in seen_urls:
-                seen_urls.add(job['url'])
+            job_key = f"{job.get('title', '').lower()}_{job.get('company', '').lower()}"
+            url = job.get('url', '')
+            
+            if (url and url not in seen_urls) or (job_key and job_key not in seen_combinations):
+                if url:
+                    seen_urls.add(url)
+                if job_key:
+                    seen_combinations.add(job_key)
                 unique_jobs.append(job)
         
         logger.info(f"Total unique jobs found: {len(unique_jobs)}")
@@ -296,3 +401,33 @@ class JobCrawler:
         # Remove extra whitespace and normalize
         text = re.sub(r'\s+', ' ', text.strip())
         return text
+    
+    def _is_text_valid(self, text: str) -> bool:
+        """Check if text appears to be valid (not gibberish or obfuscated)."""
+        if not text or len(text) < 2:
+            return False
+        
+        # Check for too many special characters (common in obfuscated text)
+        special_char_ratio = sum(1 for c in text if not c.isalnum() and not c.isspace()) / len(text)
+        if special_char_ratio > 0.3:
+            return False
+        
+        # Check for too many asterisks (often used for obfuscation)
+        if text.count('*') > len(text) * 0.2:
+            return False
+        
+        # Check for reasonable character distribution
+        alpha_ratio = sum(1 for c in text if c.isalpha()) / len(text)
+        if alpha_ratio < 0.3:  # At least 30% alphabetic characters
+            return False
+        
+        # Check for extremely long words (common in obfuscated text)
+        words = text.split()
+        if any(len(word) > 30 for word in words):
+            return False
+        
+        # Check for repeating patterns (common in gibberish)
+        if len(set(text.lower().replace(' ', ''))) < len(text) * 0.3:
+            return False
+        
+        return True

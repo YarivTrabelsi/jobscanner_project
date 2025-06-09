@@ -143,8 +143,8 @@ jobs:
             'timestamp': datetime.now().isoformat()
         }
         
-        # Generate search endpoints for common terms
-        search_terms = ['Staff Engineer', 'VP Engineering', 'Director Engineering', 'Engineering Manager', 'Principal Engineer']
+                 # Generate search endpoints for common terms
+         search_terms = ['Staff Engineer', 'VP Engineering', 'Director Engineering', 'Engineering Manager', 'Principal Engineer', 'CTO', 'Head of Engineering']
         
         for term in search_terms:
             matching_jobs = []

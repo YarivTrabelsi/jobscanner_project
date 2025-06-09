@@ -54,12 +54,31 @@ def main():
             'Staff Engineer',
             'Principal Engineer',
             'Senior Engineering Manager',
-            'Head of Engineering'
+            'Head of Engineering',
+            'Chief Technology Officer',
+            'CTO'
+        ]
+        
+        # Define target locations (Israel + Western Europe)
+        locations = [
+            'Israel',
+            'United Kingdom', 
+            'Germany',
+            'Netherlands',
+            'France',
+            'Switzerland',
+            'Sweden',
+            'Denmark',
+            'Norway',
+            'Austria',
+            'Belgium',
+            'Ireland',
+            'Finland'
         ]
         
         # Crawl all sources
-        logger.info(f"🔍 Starting crawl for {len(search_terms)} search terms...")
-        jobs = crawler.crawl_all_sources(search_terms)
+        logger.info(f"🔍 Starting crawl for {len(search_terms)} search terms in {len(locations)} locations...")
+        jobs = crawler.crawl_all_sources(search_terms, locations)
         
         if not jobs:
             logger.warning("⚠️  No jobs found during crawl")

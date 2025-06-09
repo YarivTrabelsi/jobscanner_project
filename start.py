@@ -28,13 +28,21 @@ def check_and_populate_database():
         if stats['total'] == 0:
             logger.info("Database is empty, running initial crawl...")
             
-            # Run a limited initial crawl
+            # Run a limited initial crawl with location targeting
             crawler = JobCrawler()
-            jobs = crawler.crawl_all_sources([
-                'Staff Engineer', 
-                'VP Engineering', 
-                'Director Engineering'
-            ])
+            jobs = crawler.crawl_all_sources(
+                search_terms=[
+                    'Staff Engineer', 
+                    'VP Engineering', 
+                    'Director Engineering'
+                ],
+                locations=[
+                    'Israel',
+                    'United Kingdom',
+                    'Germany',
+                    'Netherlands'
+                ]
+            )
             
             # Save jobs to database
             new_jobs = 0
