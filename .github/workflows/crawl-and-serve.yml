@@ -1,0 +1,349 @@
+name: 🕷️ JobScanner Crawl & Serve API
+
+on:
+  # Run daily at 9 AM UTC
+  schedule:
+    - cron: '0 9 * * *'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+  
+  # Run on push for testing
+  push:
+    branches: [ main ]
+
+# Required for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  crawl-and-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: 📦 Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: 🎭 Install Playwright Browser
+      run: |
+        playwright install chromium
+    
+    - name: 📊 Get Latest Database from Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: jobscanner-database
+        path: ./
+      continue-on-error: true
+    
+    - name: 🕷️ Run Job Crawler
+      run: |
+        echo "🚀 Starting JobScanner crawl..."
+        python3 scripts/run_daily.py
+    
+    - name: 📁 Create API Directory
+      run: |
+        mkdir -p docs/api
+        mkdir -p docs/data
+    
+    - name: 🔄 Generate Static API Files
+      run: |
+        python3 - << 'EOF'
+        import sys
+        import json
+        import os
+        from datetime import datetime
+        sys.path.insert(0, '.')
+        from jobscanner.db import JobDatabase
+        
+        # Initialize database
+        db = JobDatabase("jobs.db")
+        
+        # Get stats
+        stats = db.get_stats()
+        
+        # Get all jobs
+        all_jobs = db.get_jobs(limit=None)
+        
+        # Parse metadata for all jobs
+        for job in all_jobs:
+            try:
+                import json as json_lib
+                job['metadata'] = json_lib.loads(job['metadata_json'])
+                del job['metadata_json']
+            except:
+                job['metadata'] = {}
+        
+        # Generate API responses
+        api_data = {
+            'stats': {
+                'success': True,
+                'data': stats,
+                'timestamp': datetime.now().isoformat(),
+                'total_jobs': len(all_jobs)
+            },
+            'jobs': {
+                'success': True,
+                'data': {
+                    'jobs': all_jobs[:50],  # Latest 50 jobs
+                    'total': len(all_jobs),
+                    'limit': 50
+                },
+                'timestamp': datetime.now().isoformat()
+            },
+            'jobs_all': {
+                'success': True,
+                'data': {
+                    'jobs': all_jobs,
+                    'total': len(all_jobs)
+                },
+                'timestamp': datetime.now().isoformat()
+            }
+        }
+        
+        # Generate company analysis
+        companies = {}
+        for job in all_jobs:
+            company = job['company']
+            if company not in companies:
+                companies[company] = {
+                    'name': company,
+                    'job_count': 0,
+                    'latest_posting': None,
+                    'jobs': []
+                }
+            companies[company]['job_count'] += 1
+            companies[company]['jobs'].append({
+                'id': job['id'],
+                'title': job['title'],
+                'posted_date': job['posted_date'],
+                'url': job['url']
+            })
+            if job['posted_date']:
+                if not companies[company]['latest_posting'] or job['posted_date'] > companies[company]['latest_posting']:
+                    companies[company]['latest_posting'] = job['posted_date']
+        
+        sorted_companies = sorted(companies.values(), key=lambda x: x['job_count'], reverse=True)
+        
+        api_data['companies'] = {
+            'success': True,
+            'data': sorted_companies,
+            'total': len(sorted_companies),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Generate search endpoints for common terms
+        search_terms = ['Staff Engineer', 'VP Engineering', 'Director Engineering', 'Engineering Manager', 'Principal Engineer']
+        
+        for term in search_terms:
+            matching_jobs = []
+            term_lower = term.lower()
+            for job in all_jobs:
+                if (term_lower in job['title'].lower() or 
+                    term_lower in job['company'].lower() or 
+                    (job['description'] and term_lower in job['description'].lower())):
+                    matching_jobs.append(job)
+            
+            filename = term.lower().replace(' ', '_')
+            api_data[f'search_{filename}'] = {
+                'success': True,
+                'data': {
+                    'jobs': matching_jobs,
+                    'total': len(matching_jobs),
+                    'query': term
+                },
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        # Write API files
+        for endpoint, data in api_data.items():
+            with open(f'docs/api/{endpoint}.json', 'w') as f:
+                json.dump(data, f, indent=2, default=str)
+        
+        # Copy database for download
+        import shutil
+        shutil.copy('jobs.db', 'docs/data/jobs.db')
+        
+        print(f"✅ Generated API files:")
+        print(f"  📊 Stats: {stats}")
+        print(f"  💼 Total jobs: {len(all_jobs)}")
+        print(f"  🏢 Companies: {len(sorted_companies)}")
+        print(f"  📁 API endpoints: {len(api_data)}")
+        
+        EOF
+    
+    - name: 📝 Generate HTML Index
+      run: |
+        cat > docs/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>JobScanner API</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+                .header { text-align: center; margin-bottom: 40px; }
+                .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 8px; }
+                .endpoint h3 { margin-top: 0; color: #0366d6; }
+                .endpoint a { color: #0366d6; text-decoration: none; font-family: monospace; }
+                .endpoint a:hover { text-decoration: underline; }
+                .stats { background: #e6f3ff; padding: 20px; border-radius: 8px; margin: 20px 0; }
+                .updated { text-align: center; color: #666; font-size: 0.9em; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🔍 JobScanner API</h1>
+                <p>Live job data from Google Careers & LinkedIn</p>
+            </div>
+            
+            <div class="stats" id="stats">
+                <h3>📊 Loading Statistics...</h3>
+            </div>
+            
+            <h2>🔗 API Endpoints</h2>
+            
+            <div class="endpoint">
+                <h3>📊 Database Statistics</h3>
+                <p>Get overall database stats and counts</p>
+                <a href="./api/stats.json" target="_blank">📊 /api/stats.json</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>💼 Recent Jobs (50 latest)</h3>
+                <p>Get the 50 most recent job listings</p>
+                <a href="./api/jobs.json" target="_blank">💼 /api/jobs.json</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>📋 All Jobs</h3>
+                <p>Get complete job database (may be large)</p>
+                <a href="./api/jobs_all.json" target="_blank">📋 /api/jobs_all.json</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>🏢 Companies Analysis</h3>
+                <p>Companies ranked by job count with details</p>
+                <a href="./api/companies.json" target="_blank">🏢 /api/companies.json</a>
+            </div>
+            
+            <h3>🔍 Pre-built Searches</h3>
+            
+            <div class="endpoint">
+                <h3>👨‍💻 Staff Engineer Roles</h3>
+                <a href="./api/search_staff_engineer.json" target="_blank">🔍 /api/search_staff_engineer.json</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>👔 VP Engineering Roles</h3>
+                <a href="./api/search_vp_engineering.json" target="_blank">🔍 /api/search_vp_engineering.json</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>📈 Director Engineering Roles</h3>
+                <a href="./api/search_director_engineering.json" target="_blank">🔍 /api/search_director_engineering.json</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>🛠️ Engineering Manager Roles</h3>
+                <a href="./api/search_engineering_manager.json" target="_blank">🔍 /api/search_engineering_manager.json</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>⭐ Principal Engineer Roles</h3>
+                <a href="./api/search_principal_engineer.json" target="_blank">🔍 /api/search_principal_engineer.json</a>
+            </div>
+            
+            <h3>📁 Raw Data</h3>
+            
+            <div class="endpoint">
+                <h3>💾 SQLite Database</h3>
+                <p>Download the raw SQLite database file</p>
+                <a href="./data/jobs.db" download>💾 Download jobs.db</a>
+            </div>
+            
+            <div class="updated">
+                <p>🕐 Last updated: <span id="lastUpdated">Loading...</span></p>
+                <p>🔄 Updates daily at 9:00 AM UTC via GitHub Actions</p>
+            </div>
+            
+            <script>
+                // Load and display stats
+                fetch('./api/stats.json')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            const stats = data.data;
+                            document.getElementById('stats').innerHTML = `
+                                <h3>📊 Database Statistics</h3>
+                                <p><strong>Total Jobs:</strong> ${stats.total}</p>
+                                <p><strong>New Jobs:</strong> ${stats.new}</p>
+                                <p><strong>Processed Jobs:</strong> ${stats.processed}</p>
+                            `;
+                            document.getElementById('lastUpdated').textContent = new Date(data.timestamp).toLocaleString();
+                        }
+                    })
+                    .catch(error => {
+                        document.getElementById('stats').innerHTML = '<h3>📊 Statistics unavailable</h3>';
+                        console.error('Error loading stats:', error);
+                    });
+            </script>
+        </body>
+        </html>
+        EOF
+    
+    - name: 💾 Upload Database Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: jobscanner-database
+        path: jobs.db
+        retention-days: 90
+    
+    - name: 📁 Setup Pages
+      uses: actions/configure-pages@v4
+    
+    - name: 🚀 Upload Pages Artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: docs/
+    
+    - name: 📋 Create Summary
+      run: |
+        echo "## 🎯 JobScanner API Generated" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Statistics" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        python3 scripts/query_jobs.py --stats >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 API Endpoints Available" >> $GITHUB_STEP_SUMMARY
+        echo "- 📊 [Database Stats](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/api/stats.json)" >> $GITHUB_STEP_SUMMARY
+        echo "- 💼 [Recent Jobs](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/api/jobs.json)" >> $GITHUB_STEP_SUMMARY
+        echo "- 🏢 [Companies](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/api/companies.json)" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔍 [Search Results](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/)" >> $GITHUB_STEP_SUMMARY
+
+  deploy:
+    needs: crawl-and-build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4 

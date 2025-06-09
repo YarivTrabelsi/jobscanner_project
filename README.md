@@ -47,37 +47,32 @@ This version provides a **REST API** for accessing crawled job data:
 
 ## 🚀 Quick Start
 
-### Option A: Railway Deployment (Recommended - Free Web API!)
+### GitHub Pages Deployment (100% GitHub-hosted!)
 
-**1. Deploy to Railway:**
-- Fork this repository
-- Go to [Railway.app](https://railway.app)
-- Click "Deploy from GitHub repo"
-- Select your forked `jobscanner_project`
-- Railway auto-deploys! ✨
+**1. Fork this repository to your GitHub account**
 
-**2. Test your API:**
-```bash
-# Replace YOUR_APP_URL with your Railway app URL
-python test_api.py https://YOUR_APP_URL.railway.app
+**2. Enable GitHub Actions and Pages:**
+- Go to your forked repo settings
+- Click **"Actions"** → **"General"** → Allow all actions
+- Click **"Pages"** → **"Source"** → **"GitHub Actions"**
+
+**3. Trigger the workflow:**
+- Go to **"Actions"** tab in your repo
+- Click **"🕷️ JobScanner Crawl & Serve API"**  
+- Click **"Run workflow"** → **"Run workflow"**
+- Wait 3-5 minutes for completion
+
+**4. Access your live API:**
+```
+🌐 Main Dashboard: https://YOUR_USERNAME.github.io/jobscanner_project/
+📊 Stats API: https://YOUR_USERNAME.github.io/jobscanner_project/api/stats.json
+💼 Jobs API: https://YOUR_USERNAME.github.io/jobscanner_project/api/jobs.json
+🏢 Companies API: https://YOUR_USERNAME.github.io/jobscanner_project/api/companies.json
 ```
 
-**3. Use the API:**
-```bash
-# Get statistics
-curl https://YOUR_APP_URL.railway.app/api/stats
+**Replace `YOUR_USERNAME` with your GitHub username**
 
-# List jobs
-curl https://YOUR_APP_URL.railway.app/api/jobs?limit=10
-
-# Search jobs
-curl https://YOUR_APP_URL.railway.app/api/search?q="Staff%20Engineer"
-
-# Trigger manual crawl
-curl -X POST https://YOUR_APP_URL.railway.app/api/crawl
-```
-
-### Option B: Local Development
+### Local Development
 
 ```bash
 # Clone and setup
@@ -88,22 +83,31 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 playwright install chromium
 
-# Start API server (runs initial crawl automatically)
-python start.py
+# Run manual crawl
+python scripts/run_daily.py
 
-# Test the API
-python test_api.py
-
-# API available at: http://localhost:5000
+# Query results locally
+python scripts/query_jobs.py --stats --detailed
 ```
 
 ---
 
 ## 🔌 API Usage Examples
 
+### **Your Live API URLs**
+Once deployed, your API will be available at:
+```
+🌐 Dashboard: https://YOUR_USERNAME.github.io/jobscanner_project/
+📊 Stats: https://YOUR_USERNAME.github.io/jobscanner_project/api/stats.json
+💼 Jobs: https://YOUR_USERNAME.github.io/jobscanner_project/api/jobs.json
+🏢 Companies: https://YOUR_USERNAME.github.io/jobscanner_project/api/companies.json
+🔍 Staff Engineers: https://YOUR_USERNAME.github.io/jobscanner_project/api/search_staff_engineer.json
+🔍 VP Engineering: https://YOUR_USERNAME.github.io/jobscanner_project/api/search_vp_engineering.json
+```
+
 ### **Get Database Statistics**
 ```bash
-curl https://your-app.railway.app/api/stats
+curl https://YOUR_USERNAME.github.io/jobscanner_project/api/stats.json
 ```
 ```json
 {
@@ -117,92 +121,106 @@ curl https://your-app.railway.app/api/stats
 }
 ```
 
-### **List Recent Jobs**
+### **Get Recent Jobs**
 ```bash
-curl "https://your-app.railway.app/api/jobs?limit=5&status=new"
+curl https://YOUR_USERNAME.github.io/jobscanner_project/api/jobs.json
 ```
 
-### **Search for Specific Roles**
+### **Search for Staff Engineers**
 ```bash
-curl "https://your-app.railway.app/api/search?q=Staff Engineer&limit=10"
+curl https://YOUR_USERNAME.github.io/jobscanner_project/api/search_staff_engineer.json
 ```
 
 ### **Get Company Analysis**
 ```bash
-curl https://your-app.railway.app/api/companies
+curl https://YOUR_USERNAME.github.io/jobscanner_project/api/companies.json
 ```
 
-### **Trigger Manual Crawl**
+### **Download Raw Database**
 ```bash
-curl -X POST https://your-app.railway.app/api/crawl \
-  -H "Content-Type: application/json" \
-  -d '{"search_terms": ["VP Engineering", "Director Engineering"]}'
-```
-
-### **Check Crawl Status**
-```bash
-curl https://your-app.railway.app/api/crawl/status
+curl -O https://YOUR_USERNAME.github.io/jobscanner_project/data/jobs.db
 ```
 
 ### **JavaScript/Frontend Integration**
 ```javascript
 // Get jobs for your frontend
 async function getJobs() {
-  const response = await fetch('https://your-app.railway.app/api/jobs?limit=20');
+  const response = await fetch('https://YOUR_USERNAME.github.io/jobscanner_project/api/jobs.json');
   const data = await response.json();
   return data.data.jobs;
 }
 
-// Search jobs
-async function searchJobs(query) {
-  const response = await fetch(`https://your-app.railway.app/api/search?q=${encodeURIComponent(query)}`);
+// Get company analysis
+async function getCompanies() {
+  const response = await fetch('https://YOUR_USERNAME.github.io/jobscanner_project/api/companies.json');
   const data = await response.json();
-  return data.data.jobs;
+  return data.data;
+}
+
+// Get stats
+async function getStats() {
+  const response = await fetch('https://YOUR_USERNAME.github.io/jobscanner_project/api/stats.json');
+  const data = await response.json();
+  return data.data;
 }
 ```
 
 ---
 
-## ☁️ Deployment Options
+## ☁️ GitHub Pages Static API
 
-JobScanner runs completely free on GitHub Actions with the following architecture:
+JobScanner uses GitHub Actions + GitHub Pages to create a **static API** with the following architecture:
 
 ### 🔄 **How It Works:**
 
-1. **Scheduled Execution**: Runs daily at 9 AM UTC (configurable)
-2. **Database Persistence**: SQLite database stored in GitHub Artifacts (90-day retention)
-3. **Incremental Updates**: Downloads previous database → adds new jobs → re-uploads
-4. **Duplicate Prevention**: URL-based deduplication prevents duplicate job entries
-5. **Rich Reporting**: Each run generates a summary with statistics and sample jobs
+1. **Scheduled Crawling**: GitHub Actions runs daily at 9 AM UTC
+2. **Data Processing**: Crawls jobs, updates SQLite database, generates JSON files  
+3. **Static API Generation**: Creates JSON endpoints for stats, jobs, companies, searches
+4. **GitHub Pages Deployment**: Serves JSON files as static API endpoints
+5. **Live Web Dashboard**: Interactive HTML dashboard with clickable links
 
-### 📁 **Workflow Files:**
+### 📁 **Generated API Structure:**
 
-- `.github/workflows/job-crawler.yml` - Main daily crawler
-- `.github/workflows/test-crawler.yml` - Manual testing workflow
+```
+docs/
+├── index.html                          # 🌐 Main dashboard
+├── api/
+│   ├── stats.json                      # 📊 Database statistics
+│   ├── jobs.json                       # 💼 Recent 50 jobs
+│   ├── jobs_all.json                   # 📋 All jobs (full database)
+│   ├── companies.json                  # 🏢 Company analysis
+│   ├── search_staff_engineer.json     # 🔍 Staff Engineer roles
+│   ├── search_vp_engineering.json     # 🔍 VP Engineering roles
+│   └── search_*.json                   # 🔍 Other role searches
+└── data/
+    └── jobs.db                         # 💾 Raw SQLite database
+```
 
 ### 🎯 **Features:**
 
-✅ **Zero Cost**: Runs on GitHub's free tier  
-✅ **Zero Maintenance**: Fully automated scheduling  
-✅ **Data Persistence**: Database preserved across runs  
-✅ **Rich Logs**: Detailed execution logs and summaries  
-✅ **Manual Control**: Trigger runs anytime from GitHub UI  
-✅ **Flexible Scheduling**: Easy cron schedule modifications  
+✅ **100% GitHub-hosted**: No external services needed  
+✅ **Clickable API Links**: Direct browser access to JSON data  
+✅ **Live Web Dashboard**: Interactive HTML interface  
+✅ **Daily Auto-updates**: Scheduled crawling via GitHub Actions  
+✅ **Raw Data Access**: Download SQLite database directly  
+✅ **Multiple Search Views**: Pre-built searches for common roles  
 
-### 📊 **Monitoring:**
+### 📊 **What You Get:**
 
-- **Action Logs**: Real-time execution logs in GitHub Actions tab
-- **Job Summaries**: Each run creates a report with statistics
-- **Artifact Downloads**: Download the SQLite database anytime
-- **Email Notifications**: Get notified if workflows fail (GitHub setting)
+- **🌐 Web Dashboard**: Beautiful interface with live statistics
+- **📊 API Endpoints**: Direct JSON access for integration
+- **🔍 Pre-built Searches**: Staff Engineer, VP Engineering, etc.
+- **📈 Company Analysis**: Jobs grouped by company with counts
+- **💾 Raw Database**: Full SQLite download for custom queries
+- **📱 Mobile Friendly**: Responsive design works on any device
 
 ### ⚙️ **Customization:**
 
-Edit `.github/workflows/job-crawler.yml` to:
-- Change schedule: Modify the `cron` expression
-- Adjust search terms: Edit `scripts/run_daily.py`
-- Change retention: Modify `retention-days` in workflow
-- Add notifications: Integrate with Slack/Discord/email
+Edit `.github/workflows/crawl-and-serve.yml` to:
+- **Change schedule**: Modify the `cron` expression
+- **Add search terms**: Update the `search_terms` list in the workflow  
+- **Customize dashboard**: Edit the HTML template
+- **Add new endpoints**: Extend the JSON generation script
 
 ---
 
